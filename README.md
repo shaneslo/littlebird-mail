@@ -4,7 +4,7 @@ Littlebird's independent mailbox - a Cloudflare Worker that acts as a remote MCP
 
 ## What it does
 
-- **Outbound**: Sends email as `little-bird@<domain>` via Cloudflare's `send_email` Worker binding. DKIM-signed, so it lands as Littlebird - not Shane.
+- **Outbound**: Sends email as `little-bird@workslo.ai` via Cloudflare's `send_email` Worker binding. DKIM-signed, so it lands as Littlebird - not Shane.
 - **Inbound**: Receives email via Cloudflare Email Routing, parses with `postal-mime`, and stores in D1.
 - **MCP Tools**: Six tools exposed over a stateless HTTP endpoint (`/mcp`):
   - `send_email` - Send mail as Littlebird
@@ -24,9 +24,8 @@ Littlebird's independent mailbox - a Cloudflare Worker that acts as a remote MCP
 
 ### 1. Domain setup (alive-node only)
 
-- Onboard a domain to **Cloudflare Email Service** (Dashboard: Compute & AI > Email Service > Onboard Domain).
+- Onboard `workslo.ai` to **Cloudflare Email Service** (Dashboard: Compute & AI > Email Service > Onboard Domain).
 - Add SPF + DKIM records as instructed.
-- Update `LB_ADDRESS` and `allowed_addresses` in `wrangler.jsonc` if you want a different domain than `smslosar.com`.
 
 ### 2. Install & deploy
 
@@ -45,7 +44,7 @@ npx wrangler secret put MCP_TOKEN
 ### 4. Inbound routing rule
 
 Dashboard: Email Service > Email Routing > Create rule
-- **Custom address**: `little-bird@<your-domain>`
+- **Custom address**: `little-bird@workslo.ai`
 - **Action**: **Send to a Worker**
 - **Worker**: `littlebird-mail`
 
