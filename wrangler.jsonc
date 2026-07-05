@@ -1,0 +1,22 @@
+{
+  "name": "littlebird-mail",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-07-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "littlebird-mail",
+      "database_id": "dbc3a61d-e581-4b03-9296-eee97dfb5851"
+    }
+  ],
+  "send_email": [
+    {
+      "name": "EMAIL",
+      "allowed_addresses": ["little-bird@smslosar.com"]
+    }
+  ],
+  "vars": {
+    "LB_ADDRESS": "little-bird@smslosar.com"
+  }
+}

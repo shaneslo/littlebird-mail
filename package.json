@@ -1,0 +1,22 @@
+{
+  "name": "littlebird-mail",
+  "version": "1.0.0",
+  "description": "Littlebird's independent mailbox - a Cloudflare Worker remote MCP server",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "agents": "^0.2.0",
+    "mimetext": "^3.0.24",
+    "postal-mime": "^2.4.4",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250620.0",
+    "typescript": "^5.8.0",
+    "wrangler": "^4.0.1"
+  }
+}
