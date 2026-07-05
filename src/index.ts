@@ -19,7 +19,7 @@ interface SendEmail {
     html?: string;
     headers?: Record<string, string>;
     replyTo?: string;
-  }): Promise<void>;
+  }): Promise<{ messageId: string }>;
 }
 
 function createServer(env: Env) {
@@ -40,7 +40,7 @@ function createServer(env: Env) {
     },
     async ({ to, subject, body, html, from }) => {
       const fromAddress = from ?? env.LB_ADDRESS;
-      await env.EMAIL.send({
+      const response = await env.EMAIL.send({
         from: fromAddress,
         to,
         subject,
@@ -48,7 +48,7 @@ function createServer(env: Env) {
         html,
       });
 
-      const messageId = crypto.randomUUID();
+      const messageId = response.messageId;
       await env.DB.prepare(
         `INSERT INTO messages
          (direction, from_address, to_address, subject, body_text, body_html, message_id, thread_id, created_at)
@@ -95,7 +95,7 @@ function createServer(env: Env) {
       const subject = rawSubject.startsWith("Re:") ? rawSubject : `Re: ${rawSubject}`;
       const threadId = (original.thread_id as string) ?? message_id;
 
-      await env.EMAIL.send({
+      const response = await env.EMAIL.send({
         from: env.LB_ADDRESS,
         to,
         subject,
@@ -107,7 +107,7 @@ function createServer(env: Env) {
         },
       });
 
-      const replyId = crypto.randomUUID();
+      const replyId = response.messageId;
       await env.DB.prepare(
         `INSERT INTO messages
          (direction, from_address, to_address, subject, body_text, body_html, message_id, thread_id, in_reply_to, created_at)
