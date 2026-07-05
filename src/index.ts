@@ -1,3 +1,5 @@
+import OAuthProvider from "@cloudflare/workers-oauth-provider";
+import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import { createMcpHandler } from "agents/mcp";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -8,6 +10,8 @@ interface Env {
   EMAIL: SendEmail;
   LB_ADDRESS: string;
   MCP_TOKEN: string;
+  OAUTH_KV: KVNamespace;
+  OAUTH_PROVIDER: OAuthHelpers;
 }
 
 interface SendEmail {
@@ -234,8 +238,73 @@ function createServer(env: Env) {
   return server;
 }
 
-export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+function timingSafeEqual(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const ab = enc.encode(a);
+  const bb = enc.encode(b);
+  if (ab.length !== bb.length) return false;
+  let diff = 0;
+  for (let i = 0; i < ab.length; i++) diff |= ab[i] ^ bb[i];
+  return diff === 0;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function renderAuthorizePage(options: {
+  clientName: string;
+  encodedAuthRequest: string;
+  error?: string;
+}): Response {
+  const { clientName, encodedAuthRequest, error } = options;
+  const html = `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Authorize littlebird-mail</title>
+<style>
+  body { font-family: -apple-system, system-ui, sans-serif; max-width: 26rem; margin: 4rem auto; padding: 0 1rem; color: #1a1a1a; }
+  h1 { font-size: 1.2rem; }
+  input[type=password] { width: 100%; padding: 0.5rem; font-size: 1rem; box-sizing: border-box; }
+  button { margin-top: 1rem; padding: 0.5rem 1.5rem; font-size: 1rem; cursor: pointer; }
+  .error { color: #b00020; }
+</style>
+</head>
+<body>
+<h1>Authorize access to littlebird-mail</h1>
+<p><strong>${escapeHtml(clientName)}</strong> is requesting access to the littlebird-mail MCP server.</p>
+${error ? `<p class="error">${escapeHtml(error)}</p>` : ""}
+<form method="post">
+  <input type="hidden" name="oauth_req" value="${escapeHtml(encodedAuthRequest)}">
+  <label for="token">MCP access token</label>
+  <input type="password" id="token" name="token" autocomplete="off" autofocus>
+  <button type="submit">Authorize</button>
+</form>
+</body>
+</html>`;
+  return new Response(html, {
+    status: error ? 401 : 200,
+    headers: { "Content-Type": "text/html;charset=UTF-8" },
+  });
+}
+
+async function clientNameFor(env: Env, clientId: string): Promise<string> {
+  try {
+    const client = await env.OAUTH_PROVIDER.lookupClient(clientId);
+    return client?.clientName || clientId;
+  } catch {
+    return clientId;
+  }
+}
+
+const defaultHandler = {
+  async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
     if (url.pathname === "/") {
@@ -244,17 +313,94 @@ export default {
       });
     }
 
-    if (url.pathname === "/mcp") {
-      const auth = request.headers.get("Authorization");
-      if (auth !== `Bearer ${env.MCP_TOKEN}`) {
-        return new Response("Unauthorized", { status: 401 });
+    if (url.pathname === "/authorize" && request.method === "GET") {
+      const oauthReq = await env.OAUTH_PROVIDER.parseAuthRequest(request);
+      const clientName = await clientNameFor(env, oauthReq.clientId);
+      return renderAuthorizePage({
+        clientName,
+        encodedAuthRequest: btoa(JSON.stringify(oauthReq)),
+      });
+    }
+
+    if (url.pathname === "/authorize" && request.method === "POST") {
+      const form = await request.formData();
+      const encoded = form.get("oauth_req");
+      const token = form.get("token");
+
+      if (typeof encoded !== "string" || !encoded) {
+        return new Response("Bad Request", { status: 400 });
       }
 
-      const server = createServer(env);
-      return createMcpHandler(server)(request, env, ctx);
+      let oauthReq: AuthRequest;
+      try {
+        oauthReq = JSON.parse(atob(encoded));
+      } catch {
+        return new Response("Bad Request", { status: 400 });
+      }
+
+      const clientName = await clientNameFor(env, oauthReq.clientId);
+
+      if (typeof token !== "string" || !timingSafeEqual(token.trim(), env.MCP_TOKEN.trim())) {
+        return renderAuthorizePage({
+          clientName,
+          encodedAuthRequest: encoded,
+          error: "Invalid access token.",
+        });
+      }
+
+      const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
+        request: oauthReq,
+        userId: "shane",
+        scope: oauthReq.scope,
+        metadata: { authorizedVia: "mcp-token" },
+        props: { authorizedBy: "mcp-token" },
+      });
+
+      // RFC 9207: include the issuer identifier in the authorization response.
+      const redirect = new URL(redirectTo);
+      redirect.searchParams.set("iss", url.origin);
+      return Response.redirect(redirect.toString(), 302);
     }
 
     return new Response("Not Found", { status: 404 });
+  },
+};
+
+const mcpApiHandler = {
+  fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const server = createServer(env);
+    return createMcpHandler(server)(request, env, ctx);
+  },
+};
+
+const oauthProvider = new OAuthProvider({
+  apiRoute: "/mcp",
+  apiHandler: mcpApiHandler as any,
+  defaultHandler: defaultHandler as any,
+  authorizeEndpoint: "/authorize",
+  tokenEndpoint: "/token",
+  clientRegistrationEndpoint: "/register",
+  clientIdMetadataDocumentEnabled: true,
+  scopesSupported: ["mail:read", "mail:send"],
+});
+
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const response = await oauthProvider.fetch(request, env, ctx);
+
+    // Advertise RFC 9207 support; the library omits this field and our
+    // /authorize handler adds the iss parameter itself.
+    const url = new URL(request.url);
+    if (url.pathname === "/.well-known/oauth-authorization-server" && response.status === 200) {
+      const metadata = (await response.json()) as Record<string, unknown>;
+      metadata.authorization_response_iss_parameter_supported = true;
+      return new Response(JSON.stringify(metadata), {
+        status: 200,
+        headers: response.headers,
+      });
+    }
+
+    return response;
   },
 
   async email(message: ForwardableEmailMessage, env: Env, ctx: ExecutionContext) {
