@@ -27,32 +27,38 @@ Littlebird's independent mailbox - a Cloudflare Worker that acts as a remote MCP
 - Onboard `workslo.ai` to **Cloudflare Email Service** (Dashboard: Compute & AI > Email Service > Onboard Domain).
 - Add SPF + DKIM records as instructed.
 
-### 2. Install & deploy
+### 2. Install & generate types
 
 ```bash
 npm install
+npx wrangler types  # Generates worker-configuration.d.ts with runtime types
+```
+
+### 3. Deploy
+
+```bash
 npx wrangler deploy
 ```
 
-### 3. Set secrets
+### 4. Set secrets
 
 ```bash
 npx wrangler secret put MCP_TOKEN
 # Enter a long random string (this guards /mcp)
 ```
 
-### 4. Inbound routing rule
+### 5. Inbound routing rule
 
 Dashboard: Email Service > Email Routing > Create rule
 - **Custom address**: `littlebird-mail@workslo.ai`
 - **Action**: **Send to a Worker**
 - **Worker**: `littlebird-mail`
 
-### 5. Wire up the MCP client
+### 6. Wire up the MCP client
 
 In **Littlebird Settings > Integrations**, add a Remote MCP server:
 - **URL**: `https://littlebird-mail.<your-subdomain>.workers.dev/mcp`
-- **Auth**: Bearer token = the value you set in step 3
+- **Auth**: Bearer token = the value you set in step 4
 
 ## Schema
 
