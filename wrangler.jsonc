@@ -13,7 +13,7 @@
   "send_email": [
     {
       "name": "EMAIL",
-      "allowed_addresses": ["littlebird-mail@workslo.ai"]
+      "allowed_sender_addresses": ["littlebird-mail@workslo.ai"]
     }
   ],
   "vars": {
