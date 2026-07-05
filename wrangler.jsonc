@@ -13,10 +13,10 @@
   "send_email": [
     {
       "name": "EMAIL",
-      "allowed_addresses": ["little-bird@workslo.ai"]
+      "allowed_addresses": ["littlebird-@workslo.ai"]
     }
   ],
   "vars": {
-    "LB_ADDRESS": "little-bird@workslo.ai"
+    "LB_ADDRESS": "littlebird-@workslo.ai"
   }
 }
