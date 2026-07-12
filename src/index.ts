@@ -248,6 +248,31 @@ function timingSafeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
+function hasValidMcpToken(request: Request, env: Env): boolean {
+  const auth = request.headers.get("Authorization");
+  if (!auth) return false;
+
+  const match = auth.match(/^Bearer\s+(.+)$/i);
+  if (!match) return false;
+
+  return timingSafeEqual(match[1].trim(), env.MCP_TOKEN.trim());
+}
+
+async function defaultPublicClientRegistration(request: Request): Promise<Request> {
+  const contentType = request.headers.get("Content-Type") ?? "";
+  if (!contentType.includes("application/json")) return request;
+
+  const metadata = await request.clone().json() as Record<string, unknown>;
+  if (typeof metadata.token_endpoint_auth_method === "string") return request;
+
+  return new Request(request, {
+    body: JSON.stringify({
+      ...metadata,
+      token_endpoint_auth_method: "none",
+    }),
+  });
+}
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -350,16 +375,13 @@ const defaultHandler = {
 
       const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
         request: oauthReq,
-        userId: "shane",
+        userId: "littlebird-owner",
         scope: oauthReq.scope,
         metadata: { authorizedVia: "mcp-token" },
         props: { authorizedBy: "mcp-token" },
       });
 
-      // RFC 9207: include the issuer identifier in the authorization response.
-      const redirect = new URL(redirectTo);
-      redirect.searchParams.set("iss", url.origin);
-      return Response.redirect(redirect.toString(), 302);
+      return Response.redirect(redirectTo, 302);
     }
 
     return new Response("Not Found", { status: 404 });
@@ -381,24 +403,40 @@ const oauthProvider = new OAuthProvider({
   tokenEndpoint: "/token",
   clientRegistrationEndpoint: "/register",
   clientIdMetadataDocumentEnabled: true,
+  resourceMatchOriginOnly: true,
   scopesSupported: ["mail:read", "mail:send"],
+  onError: ({ status, code, description, internal }) => {
+    console.warn("OAuth error response", {
+      status,
+      code,
+      description,
+      internal,
+    });
+  },
 });
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    const response = await oauthProvider.fetch(request, env, ctx);
-
-    // Advertise RFC 9207 support; the library omits this field and our
-    // /authorize handler adds the iss parameter itself.
     const url = new URL(request.url);
-    if (url.pathname === "/.well-known/oauth-authorization-server" && response.status === 200) {
-      const metadata = (await response.json()) as Record<string, unknown>;
-      metadata.authorization_response_iss_parameter_supported = true;
-      return new Response(JSON.stringify(metadata), {
-        status: 200,
-        headers: response.headers,
+
+    if (url.pathname === "/mcp") {
+      if (request.method === "OPTIONS" || hasValidMcpToken(request, env)) {
+        return mcpApiHandler.fetch(request, env, ctx);
+      }
+
+      return new Response("Unauthorized", {
+        status: 401,
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+        },
       });
     }
+
+    if (url.pathname === "/register" && request.method === "POST") {
+      request = await defaultPublicClientRegistration(request);
+    }
+
+    const response = await oauthProvider.fetch(request, env, ctx);
 
     return response;
   },

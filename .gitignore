@@ -9,3 +9,5 @@ client_secret*.json
 .ssh/
 .mcp-auth/
 .DS_Store
+
+TODAY.md

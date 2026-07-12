@@ -17,7 +17,7 @@ Littlebird's independent mailbox - a Cloudflare Worker that acts as a remote MCP
 ## Architecture
 
 - **Stateless**: No Durable Objects or session state. All persistence is D1.
-- **Auth**: `/mcp` is guarded by a Bearer token (`MCP_TOKEN` secret).
+- **Auth**: `/mcp` is the Littlebird URL + Bearer token endpoint. Requests with `Authorization: Bearer <MCP_TOKEN>` go directly to the MCP handler; unauthenticated requests return a plain 401 and do not advertise OAuth. OAuth helper endpoints remain available for future clients, but Littlebird should use the static token path.
 - **Threading**: Unified `messages` table with `thread_id` and `in_reply_to`. Replies attach to the parent thread.
 
 ## Deploy
@@ -44,7 +44,7 @@ npx wrangler deploy
 
 ```bash
 npx wrangler secret put MCP_TOKEN
-# Enter a long random string (this guards /mcp)
+# Enter a long random string. Littlebird uses this as the Remote MCP bearer token.
 ```
 
 ### 5. Inbound routing rule
@@ -57,8 +57,25 @@ Dashboard: Email Service > Email Routing > Create rule
 ### 6. Wire up the MCP client
 
 In **Littlebird Settings > Integrations**, add a Remote MCP server:
-- **URL**: `https://littlebird-mail.<your-subdomain>.workers.dev/mcp`
+- **URL**: `https://birb.workslo.ai/mcp`
 - **Auth**: Bearer token = the value you set in step 4
+
+This is the supported Littlebird connection path after the July 5 OAuth cutover. Do not use the browser OAuth authorize flow for Littlebird; its current callback path aborts before token exchange.
+
+### 7. Smoke check the deployed MCP endpoint
+
+Use the same URL + token shape as Littlebird:
+
+```bash
+MCP_TOKEN=<token-from-step-4> npm run smoke:mcp
+```
+
+Expected result:
+
+```text
+MCP smoke passed for https://birb.workslo.ai/mcp
+Tools: inbox_stats, list_inbox, read_message, reply, search_inbox, send_email
+```
 
 ## Schema
 
@@ -105,4 +122,5 @@ CREATE TABLE IF NOT EXISTS config (
 | D1 | `DB` | Message store + config |
 | send_email | `EMAIL` | Outbound mail |
 | var | `LB_ADDRESS` | Default From address |
-| secret | `MCP_TOKEN` | Bearer auth for /mcp |
+| secret | `MCP_TOKEN` | Littlebird static bearer token and OAuth authorize-page gate |
+| KV | `OAUTH_KV` | OAuth provider grants, tokens, and dynamic clients |
