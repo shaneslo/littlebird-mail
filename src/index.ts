@@ -262,7 +262,13 @@ async function defaultPublicClientRegistration(request: Request): Promise<Reques
   const contentType = request.headers.get("Content-Type") ?? "";
   if (!contentType.includes("application/json")) return request;
 
-  const metadata = await request.clone().json() as Record<string, unknown>;
+  let metadata: Record<string, unknown>;
+  try {
+    metadata = await request.clone().json() as Record<string, unknown>;
+  } catch {
+    // Malformed JSON: let the OAuth provider return its own 400.
+    return request;
+  }
   if (typeof metadata.token_endpoint_auth_method === "string") return request;
 
   return new Request(request, {
