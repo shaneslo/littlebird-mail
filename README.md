@@ -17,7 +17,7 @@ Littlebird's independent mailbox - a Cloudflare Worker that acts as a remote MCP
 ## Architecture
 
 - **Stateless**: No Durable Objects or session state. All persistence is D1.
-- **Auth**: `/mcp` is the Littlebird URL + Bearer token endpoint. Requests with `Authorization: Bearer <MCP_TOKEN>` go directly to the MCP handler; unauthenticated requests return a plain 401 and do not advertise OAuth. OAuth helper endpoints remain available for future clients, but Littlebird should use the static token path.
+- **Auth**: `/mcp` accepts only `Authorization: Bearer <MCP_TOKEN>`. Unauthenticated requests return a plain `401`; there is no OAuth provider, authorization flow, token exchange, dynamic registration, or OAuth metadata.
 - **Threading**: Unified `messages` table with `thread_id` and `in_reply_to`. Replies attach to the parent thread.
 
 ## Deploy
@@ -40,12 +40,14 @@ npx wrangler types  # Generates worker-configuration.d.ts with runtime types
 npx wrangler deploy
 ```
 
-### 4. Set secrets
+### 4. Set the bearer secret for a new deployment
 
 ```bash
 npx wrangler secret put MCP_TOKEN
 # Enter a long random string. Littlebird uses this as the Remote MCP bearer token.
 ```
+
+Existing deployments keep their current `MCP_TOKEN`; a normal code deploy does not expose, replace, or rotate it. Do not re-run this command unless you intentionally need to replace the secret.
 
 ### 5. Inbound routing rule
 
@@ -60,7 +62,7 @@ In **Littlebird Settings > Integrations**, add a Remote MCP server:
 - **URL**: `https://birb.workslo.ai/mcp`
 - **Auth**: Bearer token = the value you set in step 4
 
-This is the supported Littlebird connection path after the July 5 OAuth cutover. Do not use the browser OAuth authorize flow for Littlebird; its current callback path aborts before token exchange.
+This is the service's only authentication path. OAuth endpoints such as `/authorize`, `/token`, and `/register` are intentionally not exposed.
 
 ### 7. Smoke check the deployed MCP endpoint
 
@@ -122,5 +124,4 @@ CREATE TABLE IF NOT EXISTS config (
 | D1 | `DB` | Message store + config |
 | send_email | `EMAIL` | Outbound mail |
 | var | `LB_ADDRESS` | Default From address |
-| secret | `MCP_TOKEN` | Littlebird static bearer token and OAuth authorize-page gate |
-| KV | `OAUTH_KV` | OAuth provider grants, tokens, and dynamic clients |
+| secret | `MCP_TOKEN` | Bearer auth for `/mcp` |

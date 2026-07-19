@@ -14,7 +14,8 @@ const client = new Client({
   version: "1.0.0",
 });
 
-const transport = new StreamableHTTPClientTransport(new URL(url), {
+const mcpUrl = new URL(url);
+const transport = new StreamableHTTPClientTransport(mcpUrl, {
   requestInit: {
     headers: {
       Authorization: `Bearer ${token}`,
@@ -22,7 +23,45 @@ const transport = new StreamableHTTPClientTransport(new URL(url), {
   },
 });
 
+async function expectStatus(target, expected, label, init) {
+  const response = await fetch(target, init);
+  if (response.status !== expected) {
+    throw new Error(`${label}: expected ${expected}, received ${response.status}`);
+  }
+  return response;
+}
+
 try {
+  await expectStatus(mcpUrl, 401, "Unauthenticated /mcp");
+  await expectStatus(mcpUrl, 401, "Invalid bearer /mcp", {
+    headers: { Authorization: `Bearer ${token}-invalid` },
+  });
+
+  const preflight = await expectStatus(mcpUrl, 200, "CORS preflight", {
+    method: "OPTIONS",
+    headers: {
+      Origin: "https://app.lilbird.co",
+      "Access-Control-Request-Headers": "authorization, content-type",
+      "Access-Control-Request-Method": "POST",
+    },
+  });
+  const allowedHeaders = preflight.headers.get("Access-Control-Allow-Headers")?.toLowerCase() ?? "";
+  if (!allowedHeaders.includes("authorization")) {
+    throw new Error("CORS preflight does not allow the Authorization header");
+  }
+
+  const removedOAuthRoutes = [
+    { path: "/authorize", method: "GET" },
+    { path: "/token", method: "POST" },
+    { path: "/register", method: "POST" },
+    { path: "/.well-known/oauth-authorization-server", method: "GET" },
+    { path: "/.well-known/oauth-protected-resource", method: "GET" },
+    { path: "/mcp/.well-known/oauth-protected-resource", method: "GET" },
+  ];
+  for (const { path, method } of removedOAuthRoutes) {
+    await expectStatus(new URL(path, mcpUrl.origin), 404, `${method} ${path}`, { method });
+  }
+
   await client.connect(transport);
 
   const tools = await client.listTools();

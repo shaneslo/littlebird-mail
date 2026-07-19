@@ -1,5 +1,3 @@
-import OAuthProvider from "@cloudflare/workers-oauth-provider";
-import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import { createMcpHandler } from "agents/mcp";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -10,8 +8,6 @@ interface Env {
   EMAIL: SendEmail;
   LB_ADDRESS: string;
   MCP_TOKEN: string;
-  OAUTH_KV: KVNamespace;
-  OAUTH_PROVIDER: OAuthHelpers;
 }
 
 interface SendEmail {
@@ -250,7 +246,7 @@ function timingSafeEqual(a: string, b: string): boolean {
 
 function hasValidMcpToken(request: Request, env: Env): boolean {
   const auth = request.headers.get("Authorization");
-  if (!auth) return false;
+  if (!auth || !env.MCP_TOKEN) return false;
 
   const match = auth.match(/^Bearer\s+(.+)$/i);
   if (!match) return false;
@@ -258,84 +254,8 @@ function hasValidMcpToken(request: Request, env: Env): boolean {
   return timingSafeEqual(match[1].trim(), env.MCP_TOKEN.trim());
 }
 
-async function defaultPublicClientRegistration(request: Request): Promise<Request> {
-  const contentType = request.headers.get("Content-Type") ?? "";
-  if (!contentType.includes("application/json")) return request;
-
-  let metadata: Record<string, unknown>;
-  try {
-    metadata = await request.clone().json() as Record<string, unknown>;
-  } catch {
-    // Malformed JSON: let the OAuth provider return its own 400.
-    return request;
-  }
-  if (typeof metadata.token_endpoint_auth_method === "string") return request;
-
-  return new Request(request, {
-    body: JSON.stringify({
-      ...metadata,
-      token_endpoint_auth_method: "none",
-    }),
-  });
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function renderAuthorizePage(options: {
-  clientName: string;
-  encodedAuthRequest: string;
-  error?: string;
-}): Response {
-  const { clientName, encodedAuthRequest, error } = options;
-  const html = `<!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Authorize littlebird-mail</title>
-<style>
-  body { font-family: -apple-system, system-ui, sans-serif; max-width: 26rem; margin: 4rem auto; padding: 0 1rem; color: #1a1a1a; }
-  h1 { font-size: 1.2rem; }
-  input[type=password] { width: 100%; padding: 0.5rem; font-size: 1rem; box-sizing: border-box; }
-  button { margin-top: 1rem; padding: 0.5rem 1.5rem; font-size: 1rem; cursor: pointer; }
-  .error { color: #b00020; }
-</style>
-</head>
-<body>
-<h1>Authorize access to littlebird-mail</h1>
-<p><strong>${escapeHtml(clientName)}</strong> is requesting access to the littlebird-mail MCP server.</p>
-${error ? `<p class="error">${escapeHtml(error)}</p>` : ""}
-<form method="post">
-  <input type="hidden" name="oauth_req" value="${escapeHtml(encodedAuthRequest)}">
-  <label for="token">MCP access token</label>
-  <input type="password" id="token" name="token" autocomplete="off" autofocus>
-  <button type="submit">Authorize</button>
-</form>
-</body>
-</html>`;
-  return new Response(html, {
-    status: error ? 401 : 200,
-    headers: { "Content-Type": "text/html;charset=UTF-8" },
-  });
-}
-
-async function clientNameFor(env: Env, clientId: string): Promise<string> {
-  try {
-    const client = await env.OAUTH_PROVIDER.lookupClient(clientId);
-    return client?.clientName || clientId;
-  } catch {
-    return clientId;
-  }
-}
-
-const defaultHandler = {
-  async fetch(request: Request, env: Env): Promise<Response> {
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
     if (url.pathname === "/") {
@@ -344,90 +264,10 @@ const defaultHandler = {
       });
     }
 
-    if (url.pathname === "/authorize" && request.method === "GET") {
-      const oauthReq = await env.OAUTH_PROVIDER.parseAuthRequest(request);
-      const clientName = await clientNameFor(env, oauthReq.clientId);
-      return renderAuthorizePage({
-        clientName,
-        encodedAuthRequest: btoa(JSON.stringify(oauthReq)),
-      });
-    }
-
-    if (url.pathname === "/authorize" && request.method === "POST") {
-      const form = await request.formData();
-      const encoded = form.get("oauth_req");
-      const token = form.get("token");
-
-      if (typeof encoded !== "string" || !encoded) {
-        return new Response("Bad Request", { status: 400 });
-      }
-
-      let oauthReq: AuthRequest;
-      try {
-        oauthReq = JSON.parse(atob(encoded));
-      } catch {
-        return new Response("Bad Request", { status: 400 });
-      }
-
-      const clientName = await clientNameFor(env, oauthReq.clientId);
-
-      if (typeof token !== "string" || !timingSafeEqual(token.trim(), env.MCP_TOKEN.trim())) {
-        return renderAuthorizePage({
-          clientName,
-          encodedAuthRequest: encoded,
-          error: "Invalid access token.",
-        });
-      }
-
-      const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
-        request: oauthReq,
-        userId: "littlebird-owner",
-        scope: oauthReq.scope,
-        metadata: { authorizedVia: "mcp-token" },
-        props: { authorizedBy: "mcp-token" },
-      });
-
-      return Response.redirect(redirectTo, 302);
-    }
-
-    return new Response("Not Found", { status: 404 });
-  },
-};
-
-const mcpApiHandler = {
-  fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    const server = createServer(env);
-    return createMcpHandler(server)(request, env, ctx);
-  },
-};
-
-const oauthProvider = new OAuthProvider({
-  apiRoute: "/mcp",
-  apiHandler: mcpApiHandler as any,
-  defaultHandler: defaultHandler as any,
-  authorizeEndpoint: "/authorize",
-  tokenEndpoint: "/token",
-  clientRegistrationEndpoint: "/register",
-  clientIdMetadataDocumentEnabled: true,
-  resourceMatchOriginOnly: true,
-  scopesSupported: ["mail:read", "mail:send"],
-  onError: ({ status, code, description, internal }) => {
-    console.warn("OAuth error response", {
-      status,
-      code,
-      description,
-      internal,
-    });
-  },
-});
-
-export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    const url = new URL(request.url);
-
     if (url.pathname === "/mcp") {
       if (request.method === "OPTIONS" || hasValidMcpToken(request, env)) {
-        return mcpApiHandler.fetch(request, env, ctx);
+        const server = createServer(env);
+        return createMcpHandler(server)(request, env, ctx);
       }
 
       return new Response("Unauthorized", {
@@ -438,13 +278,7 @@ export default {
       });
     }
 
-    if (url.pathname === "/register" && request.method === "POST") {
-      request = await defaultPublicClientRegistration(request);
-    }
-
-    const response = await oauthProvider.fetch(request, env, ctx);
-
-    return response;
+    return new Response("Not Found", { status: 404 });
   },
 
   async email(message: ForwardableEmailMessage, env: Env, ctx: ExecutionContext) {

@@ -10,7 +10,6 @@
     "smoke:mcp": "node scripts/smoke-mcp.mjs"
   },
   "dependencies": {
-    "@cloudflare/workers-oauth-provider": "^0.8.1",
     "@modelcontextprotocol/sdk": "1.23.0",
     "agents": "^0.2.0",
     "ai": "^7.0.15",
