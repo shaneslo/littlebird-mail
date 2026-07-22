@@ -10,8 +10,8 @@
     "smoke:mcp": "node scripts/smoke-mcp.mjs"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.23.0",
-    "agents": "^0.2.0",
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "agents": "^0.3.10",
     "ai": "^7.0.15",
     "postal-mime": "^2.4.4",
     "zod": "^3.24.1"
