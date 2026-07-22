@@ -9,6 +9,10 @@ if (!token) {
   process.exit(2);
 }
 
+const invalidToken = `${token.slice(0, -1)}${
+  token.endsWith("x") ? "y" : "x"
+}`;
+
 const client = new Client({
   name: "littlebird-mail-smoke",
   version: "1.0.0",
@@ -34,7 +38,7 @@ async function expectStatus(target, expected, label, init) {
 try {
   await expectStatus(mcpUrl, 401, "Unauthenticated /mcp");
   await expectStatus(mcpUrl, 401, "Invalid bearer /mcp", {
-    headers: { Authorization: `Bearer ${token}-invalid` },
+    headers: { Authorization: `Bearer ${invalidToken}` },
   });
 
   const preflight = await expectStatus(mcpUrl, 200, "CORS preflight", {
@@ -45,13 +49,30 @@ try {
       "Access-Control-Request-Method": "POST",
     },
   });
-  const allowedHeaders = preflight.headers.get("Access-Control-Allow-Headers")?.toLowerCase() ?? "";
-  if (!allowedHeaders.includes("authorization")) {
-    throw new Error("CORS preflight does not allow the Authorization header");
+  const allowedOrigin = preflight.headers.get("Access-Control-Allow-Origin") ?? "";
+  if (allowedOrigin !== "*" && allowedOrigin !== "https://app.lilbird.co") {
+    throw new Error(
+      `CORS preflight does not allow the requesting origin: ${allowedOrigin || "missing"}`
+    );
+  }
+
+  const allowedHeaders =
+    preflight.headers.get("Access-Control-Allow-Headers")?.toLowerCase() ?? "";
+  for (const header of ["authorization", "content-type"]) {
+    if (!allowedHeaders.includes(header)) {
+      throw new Error(`CORS preflight does not allow the ${header} header`);
+    }
+  }
+
+  const allowedMethods =
+    preflight.headers.get("Access-Control-Allow-Methods")?.toUpperCase() ?? "";
+  if (!allowedMethods.split(",").some((method) => method.trim() === "POST")) {
+    throw new Error("CORS preflight does not allow POST");
   }
 
   const removedOAuthRoutes = [
     { path: "/authorize", method: "GET" },
+    { path: "/authorize", method: "POST" },
     { path: "/token", method: "POST" },
     { path: "/register", method: "POST" },
     { path: "/.well-known/oauth-authorization-server", method: "GET" },
