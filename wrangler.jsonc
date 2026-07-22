@@ -2,19 +2,13 @@
   "name": "littlebird-mail",
   "main": "src/index.ts",
   "compatibility_date": "2025-07-01",
-  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "compatibility_flags": ["nodejs_compat"],
   "observability": {
     "logs": {
       "enabled": true,
       "invocation_logs": true
     }
   },
-  "kv_namespaces": [
-    {
-      "binding": "OAUTH_KV",
-      "id": "7a0be2b30bb14e1db2f01f142d538b55"
-    }
-  ],
   "d1_databases": [
     {
       "binding": "DB",
