@@ -10,7 +10,7 @@
     "smoke:mcp": "node scripts/smoke-mcp.mjs"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.29.0",
+    "@modelcontextprotocol/sdk": "1.30.0",
     "agents": "^0.3.10",
     "ai": "^7.0.15",
     "postal-mime": "^2.4.4",
@@ -19,6 +19,6 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250620.0",
     "typescript": "^5.8.0",
-    "wrangler": "^4.0.1"
+    "wrangler": "^4.115.0"
   }
 }
